@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 # aytool - Docker build helper
 
-_AYTOOL_VERSION="2.2.0"
+_AYTOOL_VERSION="2.2.1"
 _AYTOOL_REPO_RAW="https://raw.githubusercontent.com/ayou129/aytool/master"
 _AYTOOL_DIR="${HOME}/.config/aytool"
 _AYTOOL_CONFIG="${_AYTOOL_DIR}/config"
@@ -546,5 +546,5 @@ aytool() {
     esac
 
     # 命令执行后异步检查更新（不阻塞，不显示 job 信息）
-    {_aytool_check_update_bg &>/dev/null &} 2>/dev/null
+    () { setopt LOCAL_OPTIONS NO_MONITOR; _aytool_check_update_bg &>/dev/null & }
 }
