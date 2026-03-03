@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 # aytool - Docker build helper
 
-_AYTOOL_VERSION="2.1.0"
+_AYTOOL_VERSION="2.1.1"
 _AYTOOL_REPO_RAW="https://raw.githubusercontent.com/ayou129/aytool/master"
 _AYTOOL_DIR="${HOME}/.config/aytool"
 _AYTOOL_CONFIG="${_AYTOOL_DIR}/config"
@@ -382,13 +382,13 @@ _aytool_build() {
     echo ""
 }
 
-# ── 版本比较 (1=新版本可用) ────────────────────────
+# ── 版本比较 (返回 0 表示 v1 > v2) ──────────────────
 _aytool_version_gt() {
     local v1="$1" v2="$2"
-    local IFS='.'
-    local i a=($v1) b=($v2)
-    for ((i=0; i<${#a[@]} || i<${#b[@]}; i++)); do
-        local n1=${a[i+1]:-0} n2=${b[i+1]:-0}
+    local -a a=(${(s/./)v1}) b=(${(s/./)v2})
+    local i
+    for ((i=1; i<=${#a[@]} || i<=${#b[@]}; i++)); do
+        local n1=${a[i]:-0} n2=${b[i]:-0}
         (( n1 > n2 )) && return 0
         (( n1 < n2 )) && return 1
     done
