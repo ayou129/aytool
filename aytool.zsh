@@ -482,20 +482,11 @@ _aytool_version_gt() {
 
 # ── 后台检查更新 (source 时调用，结果写文件) ──────────
 _aytool_check_update_bg() {
-    local check_file="${_AYTOOL_DIR}/last_update_check"
     local notice_file="${_AYTOOL_DIR}/update_notice"
-    local now=$(date +%s)
-
-    # 24 小时内不重复检查
-    if [[ -f "$check_file" ]]; then
-        local last=$(<"$check_file")
-        (( now - last < 86400 )) && return 0
-    fi
 
     mkdir -p "$_AYTOOL_DIR"
-    echo "$now" > "$check_file"
 
-    # 获取远程版本 (超时 3 秒)
+    # 每次命令都检查远程版本 (超时 3 秒)
     local remote_ver
     remote_ver=$(curl -fsSL --connect-timeout 3 --max-time 5 \
         "${_AYTOOL_REPO_RAW}/aytool.zsh" 2>/dev/null \
