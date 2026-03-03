@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 # aytool - Docker build helper
 
-_AYTOOL_VERSION="2.1.2"
+_AYTOOL_VERSION="2.1.3"
 _AYTOOL_REPO_RAW="https://raw.githubusercontent.com/ayou129/aytool/master"
 _AYTOOL_DIR="${HOME}/.config/aytool"
 _AYTOOL_CONFIG="${_AYTOOL_DIR}/config"
@@ -64,7 +64,7 @@ _aytool_find_project() {
 _aytool_read_version() {
     local var_name="$1"
     local val
-    val=$(grep "^${var_name}=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2)
+    val=$(grep "^${var_name}=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '\r')
     echo "${val:-0}"
 }
 
