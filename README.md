@@ -73,6 +73,8 @@ aytool list                 # 列出所有项目 + 当前版本
 aytool pull myapp           # 输出 docker pull 命令
 aytool import my.conf       # 从文件导入配置
 aytool init                 # 生成默认配置文件
+aytool update               # 检查并更新到最新版本
+aytool version              # 显示当前版本
 aytool help                 # 显示帮助
 ```
 
@@ -89,7 +91,13 @@ aytool help                 # 显示帮助
 
 ## 更新
 
-重新执行安装命令即可（不会覆盖已有配置文件）：
+```bash
+aytool update    # 检查并更新到最新版本
+```
+
+工具会每天自动检查一次是否有新版本，如果有会在终端提示。
+
+也可以重新执行安装命令更新（不会覆盖已有配置文件）：
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/ayou129/aytool/master/install.sh)"

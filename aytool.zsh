@@ -1,6 +1,8 @@
 #!/usr/bin/env zsh
 # aytool - Docker build helper
 
+_AYTOOL_VERSION="1.0.0"
+_AYTOOL_REPO_RAW="https://raw.githubusercontent.com/ayou129/aytool/master"
 _AYTOOL_DIR="${HOME}/.config/aytool"
 _AYTOOL_CONFIG="${_AYTOOL_DIR}/config"
 _AYTOOL_PROJECTS="${_AYTOOL_DIR}/projects.conf"
@@ -380,6 +382,92 @@ _aytool_build() {
     echo ""
 }
 
+# ── 版本比较 (1=新版本可用) ────────────────────────
+_aytool_version_gt() {
+    local v1="$1" v2="$2"
+    local IFS='.'
+    local i a=($v1) b=($v2)
+    for ((i=0; i<${#a[@]} || i<${#b[@]}; i++)); do
+        local n1=${a[i+1]:-0} n2=${b[i+1]:-0}
+        (( n1 > n2 )) && return 0
+        (( n1 < n2 )) && return 1
+    done
+    return 1
+}
+
+# ── 检查更新 (source 时后台调用) ─────────────────────
+_aytool_check_update() {
+    local check_file="${_AYTOOL_DIR}/last_update_check"
+    local now=$(date +%s)
+
+    # 24 小时内不重复检查
+    if [[ -f "$check_file" ]]; then
+        local last=$(<"$check_file")
+        (( now - last < 86400 )) && return 0
+    fi
+
+    mkdir -p "$_AYTOOL_DIR"
+    echo "$now" > "$check_file"
+
+    # 获取远程版本 (超时 3 秒)
+    local remote_ver
+    remote_ver=$(curl -fsSL --connect-timeout 3 --max-time 5 \
+        "${_AYTOOL_REPO_RAW}/aytool.zsh" 2>/dev/null \
+        | grep '^_AYTOOL_VERSION=' | head -1 | cut -d'"' -f2)
+
+    [[ -z "$remote_ver" ]] && return 0
+
+    if _aytool_version_gt "$remote_ver" "$_AYTOOL_VERSION"; then
+        echo ""
+        echo "  ${_C_YELLOW}[aytool] 新版本 v${remote_ver} 可用 (当前 v${_AYTOOL_VERSION})${_C_RESET}"
+        echo "  运行 ${_C_CYAN}aytool update${_C_RESET} 更新"
+        echo ""
+    fi
+}
+
+# ── update 命令 ────────────────────────────────────
+_aytool_update() {
+    local install_path="${_AYTOOL_DIR}/aytool.zsh"
+    local old_ver="$_AYTOOL_VERSION"
+
+    echo ""
+    echo "  ${_C_BOLD}检查更新...${_C_RESET}"
+
+    local tmp_file=$(mktemp)
+    if ! curl -fsSL --connect-timeout 5 --max-time 30 \
+        "${_AYTOOL_REPO_RAW}/aytool.zsh" -o "$tmp_file" 2>/dev/null; then
+        rm -f "$tmp_file"
+        echo "  ${_C_RED}下载失败，请检查网络连接${_C_RESET}"
+        return 1
+    fi
+
+    local new_ver
+    new_ver=$(grep '^_AYTOOL_VERSION=' "$tmp_file" | head -1 | cut -d'"' -f2)
+
+    if [[ "$new_ver" == "$old_ver" ]]; then
+        rm -f "$tmp_file"
+        echo "  ${_C_GREEN}已是最新版本 v${old_ver}${_C_RESET}"
+        echo ""
+        return 0
+    fi
+
+    mv "$tmp_file" "$install_path"
+
+    # 更新检查时间
+    echo "$(date +%s)" > "${_AYTOOL_DIR}/last_update_check"
+
+    echo "  ${_C_GREEN}更新成功!${_C_RESET} ${_C_YELLOW}v${old_ver}${_C_RESET} → ${_C_GREEN}v${new_ver}${_C_RESET}"
+    echo ""
+    echo "  运行以下命令使更新生效:"
+    echo "    ${_C_CYAN}source ~/.zshrc${_C_RESET}"
+    echo ""
+}
+
+# ── version 命令 ───────────────────────────────────
+_aytool_version() {
+    echo "aytool v${_AYTOOL_VERSION}"
+}
+
 # ── 主入口 ───────────────────────────────────────────
 aytool() {
     local subcmd="$1"
@@ -401,9 +489,15 @@ aytool() {
         import)
             _aytool_import "$@"
             ;;
+        update)
+            _aytool_update
+            ;;
+        version|--version|-v)
+            _aytool_version
+            ;;
         help|--help|-h|"")
             echo ""
-            echo "  ${_C_BOLD}aytool${_C_RESET} - Docker 构建工具"
+            echo "  ${_C_BOLD}aytool${_C_RESET} - Docker 构建工具 ${_C_DIM}v${_AYTOOL_VERSION}${_C_RESET}"
             echo ""
             echo "  ${_C_BOLD}用法:${_C_RESET}"
             echo "    aytool init                 生成默认配置文件"
@@ -413,6 +507,8 @@ aytool() {
             echo "    aytool build <别名> <版本>   指定版本构建"
             echo "    aytool list                 列出所有项目+版本"
             echo "    aytool pull <别名>          输出 pull 命令"
+            echo "    aytool update               检查并更新到最新版本"
+            echo "    aytool version              显示当前版本"
             echo "    aytool help                 显示帮助"
             echo ""
             ;;
@@ -423,3 +519,6 @@ aytool() {
             ;;
     esac
 }
+
+# ── source 时后台检查更新 ─────────────────────────────
+_aytool_check_update &>/dev/null &
