@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 # aytool - Docker build helper
 
-_AYTOOL_VERSION="2.2.1"
+_AYTOOL_VERSION="3.0.0"
 _AYTOOL_REPO_RAW="https://raw.githubusercontent.com/ayou129/aytool/master"
 _AYTOOL_DIR="${HOME}/.config/aytool"
 _AYTOOL_CONFIG="${_AYTOOL_DIR}/config"
@@ -259,31 +259,103 @@ _aytool_pull() {
     echo ""
 }
 
-# ── build 交互选择 ──────────────────────────────────
-_aytool_build_interactive() {
-    _aytool_list
-
-    local input
-    printf "  选择项目 (别名或序号): "
-    read input
-
-    if [[ -z "$input" ]]; then
-        echo "${_C_RED}已取消${_C_RESET}"
+# ── 交互选择器 (↑↓选择 Enter确认 q/Esc取消) ────────
+_aytool_select_project() {
+    local total=${#_PROJECTS[@]}
+    if (( total == 0 )); then
+        echo "  ${_C_RED}没有配置任何项目${_C_RESET}"
         return 1
     fi
 
-    # 如果是数字，转换为别名
-    if [[ "$input" =~ ^[0-9]+$ ]]; then
-        local idx=$input
-        if (( idx < 1 || idx > ${#_PROJECTS[@]} )); then
-            echo "${_C_RED}序号超出范围${_C_RESET}"
-            return 1
-        fi
-        local entry="${_PROJECTS[$idx]}"
-        input="${entry%%|*}"
-    fi
+    local selected=1
+    local key
 
-    _aytool_build "$input"
+    # 绘制菜单
+    _aytool_draw_menu() {
+        local redraw=$1
+        # 重绘时光标上移
+        if (( redraw )); then
+            printf "\033[${total}A"
+        fi
+
+        local i
+        for (( i=1; i<=total; i++ )); do
+            local entry="${_PROJECTS[$i]}"
+            local a="${entry%%|*}"
+            local rest="${entry#*|}"
+            local env_var="${rest%%|*}"
+            rest="${rest#*|}"
+            local image="${rest%%|*}"
+            local ver=$(_aytool_read_version "$env_var")
+
+            # 清行并绘制
+            printf "\033[2K"
+            if (( i == selected )); then
+                printf "  ${_C_GREEN}▸${_C_RESET} ${_C_BOLD}%-8s${_C_RESET}  %-20s  ${_C_GREEN}v%s${_C_RESET}\n" "$a" "$image" "$ver"
+            else
+                printf "    ${_C_DIM}%-8s  %-20s  v%s${_C_RESET}\n" "$a" "$image" "$ver"
+            fi
+        done
+    }
+
+    echo ""
+    echo "  ${_C_BOLD}选择项目${_C_RESET} ${_C_DIM}(↑↓ 选择  Enter 确认  q 取消)${_C_RESET}"
+    echo ""
+
+    # 隐藏光标
+    printf "\033[?25l"
+
+    _aytool_draw_menu 0
+
+    while true; do
+        # 读取单个按键
+        read -rsk1 key 2>/dev/null
+        case "$key" in
+            $'\e')
+                # 读取转义序列
+                read -rsk1 -t 0.1 key 2>/dev/null
+                if [[ "$key" == "[" ]]; then
+                    read -rsk1 -t 0.1 key 2>/dev/null
+                    case "$key" in
+                        A) (( selected > 1 )) && ((selected--)) ;;     # ↑
+                        B) (( selected < total )) && ((selected++)) ;;  # ↓
+                    esac
+                else
+                    # 单独 Esc 键
+                    printf "\033[?25h"
+                    echo ""
+                    echo "  ${_C_YELLOW}已取消${_C_RESET}"
+                    _SELECTED_ALIAS=""
+                    return 1
+                fi
+                ;;
+            $'\n'|$'\r')
+                # Enter 确认
+                printf "\033[?25h"
+                echo ""
+                local entry="${_PROJECTS[$selected]}"
+                _SELECTED_ALIAS="${entry%%|*}"
+                return 0
+                ;;
+            q|Q)
+                printf "\033[?25h"
+                echo ""
+                echo "  ${_C_YELLOW}已取消${_C_RESET}"
+                _SELECTED_ALIAS=""
+                return 1
+                ;;
+            k) (( selected > 1 )) && ((selected--)) ;;     # vim 上
+            j) (( selected < total )) && ((selected++)) ;;  # vim 下
+        esac
+
+        _aytool_draw_menu 1
+    done
+}
+
+# ── build 交互选择 ──────────────────────────────────
+_aytool_build_interactive() {
+    _aytool_select_project || return 1
+    _aytool_build "$_SELECTED_ALIAS"
 }
 
 # ── build 命令 ───────────────────────────────────────
@@ -340,11 +412,11 @@ _aytool_build() {
     echo "  ${_C_DIM}───────────────────────────────────────────${_C_RESET}"
     echo ""
 
-    local confirm
     printf "  确认构建? [Y/n] "
-    read confirm
+    read -rsk1 confirm 2>/dev/null
+    echo ""
     if [[ "$confirm" =~ ^[nN] ]]; then
-        echo "${_C_YELLOW}已取消${_C_RESET}"
+        echo "  ${_C_YELLOW}已取消${_C_RESET}"
         return 0
     fi
 
@@ -545,6 +617,10 @@ aytool() {
             ;;
     esac
 
-    # 命令执行后异步检查更新（不阻塞，不显示 job 信息）
-    () { setopt LOCAL_OPTIONS NO_MONITOR; _aytool_check_update_bg &>/dev/null & }
+    # 命令执行后异步检查更新
+    () {
+        setopt LOCAL_OPTIONS NO_MONITOR
+        _aytool_check_update_bg &>/dev/null &
+        disown 2>/dev/null
+    }
 }
