@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 # aytool - Docker build helper
 
-_AYTOOL_VERSION="2.0.0"
+_AYTOOL_VERSION="2.1.0"
 _AYTOOL_REPO_RAW="https://raw.githubusercontent.com/ayou129/aytool/master"
 _AYTOOL_DIR="${HOME}/.config/aytool"
 _AYTOOL_CONFIG="${_AYTOOL_DIR}/config"
@@ -210,7 +210,7 @@ _aytool_list() {
     _aytool_load_projects
 
     echo ""
-    echo "  ${_C_BOLD}Docker Build Tool${_C_RESET}"
+    echo "  ${_C_BOLD}Docker Build Tool${_C_RESET} ${_C_DIM}v${_AYTOOL_VERSION}${_C_RESET}"
     echo "  ${_C_DIM}──────────────────────────────────────────────────────────────────${_C_RESET}"
     printf "  ${_C_BOLD}%-4s %-10s %-24s %-10s %s${_C_RESET}\n" "#" "别名" "镜像" "版本" "构建目录"
     echo "  ${_C_DIM}──────────────────────────────────────────────────────────────────${_C_RESET}"
@@ -456,6 +456,12 @@ _aytool_update() {
     local new_ver
     new_ver=$(grep '^_AYTOOL_VERSION=' "$tmp_file" | head -1 | cut -d'"' -f2)
 
+    if [[ -z "$new_ver" ]]; then
+        rm -f "$tmp_file"
+        echo "  ${_C_RED}下载文件异常，请稍后重试${_C_RESET}"
+        return 1
+    fi
+
     if [[ "$new_ver" == "$old_ver" ]]; then
         rm -f "$tmp_file"
         echo "  ${_C_GREEN}已是最新版本 v${old_ver}${_C_RESET}"
@@ -523,16 +529,18 @@ aytool() {
             echo "    aytool build                交互选择项目构建"
             echo "    aytool build <别名>         自动版本+1构建"
             echo "    aytool build <别名> <版本>   指定版本构建"
-            echo "    aytool list                 列出所有项目+版本"
+            echo "    aytool list|ls              列出所有项目+版本"
             echo "    aytool pull <别名>          输出 pull 命令"
             echo "    aytool update               检查并更新到最新版本"
             echo "    aytool version              显示当前版本"
             echo "    aytool help                 显示帮助"
             echo ""
+            echo "  ${_C_DIM}https://github.com/ayou129/aytool${_C_RESET}"
+            echo ""
             ;;
         *)
-            echo "${_C_RED}未知命令: $subcmd${_C_RESET}"
-            echo "运行 ${_C_CYAN}aytool help${_C_RESET} 查看帮助"
+            echo "${_C_RED}未知命令: ${subcmd}${_C_RESET}"
+            echo "运行 ${_C_BOLD}aytool help${_C_RESET} 查看可用命令"
             return 1
             ;;
     esac
