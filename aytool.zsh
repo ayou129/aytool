@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 # aytool - Docker build helper
 
-_AYTOOL_VERSION="1.0.0"
+_AYTOOL_VERSION="2.0.0"
 _AYTOOL_REPO_RAW="https://raw.githubusercontent.com/ayou129/aytool/master"
 _AYTOOL_DIR="${HOME}/.config/aytool"
 _AYTOOL_CONFIG="${_AYTOOL_DIR}/config"
@@ -395,9 +395,10 @@ _aytool_version_gt() {
     return 1
 }
 
-# ── 检查更新 (source 时后台调用) ─────────────────────
-_aytool_check_update() {
+# ── 后台检查更新 (source 时调用，结果写文件) ──────────
+_aytool_check_update_bg() {
     local check_file="${_AYTOOL_DIR}/last_update_check"
+    local notice_file="${_AYTOOL_DIR}/update_notice"
     local now=$(date +%s)
 
     # 24 小时内不重复检查
@@ -418,10 +419,21 @@ _aytool_check_update() {
     [[ -z "$remote_ver" ]] && return 0
 
     if _aytool_version_gt "$remote_ver" "$_AYTOOL_VERSION"; then
+        echo "$remote_ver" > "$notice_file"
+    else
+        rm -f "$notice_file"
+    fi
+}
+
+# ── 展示更新提示 (命令执行时调用) ────────────────────
+_aytool_show_update_notice() {
+    local notice_file="${_AYTOOL_DIR}/update_notice"
+    if [[ -f "$notice_file" ]]; then
+        local remote_ver=$(<"$notice_file")
         echo ""
         echo "  ${_C_YELLOW}[aytool] 新版本 v${remote_ver} 可用 (当前 v${_AYTOOL_VERSION})${_C_RESET}"
         echo "  运行 ${_C_CYAN}aytool update${_C_RESET} 更新"
-        echo ""
+        rm -f "$notice_file"
     fi
 }
 
@@ -453,13 +465,16 @@ _aytool_update() {
 
     mv "$tmp_file" "$install_path"
 
-    # 更新检查时间
+    # 更新检查时间 & 清除更新提示
     echo "$(date +%s)" > "${_AYTOOL_DIR}/last_update_check"
+    rm -f "${_AYTOOL_DIR}/update_notice"
 
     echo "  ${_C_GREEN}更新成功!${_C_RESET} ${_C_YELLOW}v${old_ver}${_C_RESET} → ${_C_GREEN}v${new_ver}${_C_RESET}"
     echo ""
-    echo "  运行以下命令使更新生效:"
-    echo "    ${_C_CYAN}source ~/.zshrc${_C_RESET}"
+
+    # 自动加载新版本
+    source "$install_path"
+    echo "  已自动加载新版本 ${_C_GREEN}v${_AYTOOL_VERSION}${_C_RESET}"
     echo ""
 }
 
@@ -472,6 +487,9 @@ _aytool_version() {
 aytool() {
     local subcmd="$1"
     shift 2>/dev/null
+
+    # 展示更新提示（如果有）
+    _aytool_show_update_notice
 
     case "$subcmd" in
         build)
@@ -521,4 +539,4 @@ aytool() {
 }
 
 # ── source 时后台检查更新 ─────────────────────────────
-_aytool_check_update &>/dev/null &
+_aytool_check_update_bg &>/dev/null &
