@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 # aytool - Docker build helper
 
-_AYTOOL_VERSION="3.1.0"
+_AYTOOL_VERSION="3.2.0"
 _AYTOOL_REPO_RAW="https://raw.githubusercontent.com/ayou129/aytool/master"
 _AYTOOL_DIR="${HOME}/.config/aytool"
 _AYTOOL_CONFIG="${_AYTOOL_DIR}/config"
@@ -574,6 +574,277 @@ _aytool_version() {
     echo "aytool v${_AYTOOL_VERSION}"
 }
 
+# ── 保存配置 ────────────────────────────────────────
+_aytool_save_config() {
+    cat > "$_AYTOOL_CONFIG" <<CONF
+REGISTRY=${REGISTRY}
+REGISTRY_USER=${REGISTRY_USER}
+REGISTRY_PASS=${REGISTRY_PASS}
+NAMESPACE=${NAMESPACE}
+PLATFORM=${PLATFORM}
+ENV_FILE=${ENV_FILE}
+CONF
+}
+
+# ── 平台多选 (Space切换 Enter确认) ──────────────────
+_aytool_multi_select_platform() {
+    # 预置平台选项
+    local -a options=("linux/x86_64" "linux/arm64/v8" "自定义...")
+    local total=${#options[@]}
+    local selected=1
+    local key
+
+    # 根据当前 PLATFORM 初始化选中状态 (1=选中 0=未选中)
+    local -a checked=(0 0 0)
+    local IFS=','
+    for p in ${=PLATFORM}; do
+        case "$p" in
+            linux/x86_64)    checked[1]=1 ;;
+            linux/arm64/v8)  checked[2]=1 ;;
+            *)               checked[3]=1 ;;
+        esac
+    done
+
+    _draw_platform_menu() {
+        local redraw=$1
+        if (( redraw )); then
+            printf "\033[${total}A"
+        fi
+
+        local i
+        for (( i=1; i<=total; i++ )); do
+            printf "\033[2K"
+            local mark=" "
+            (( checked[i] )) && mark="✓"
+
+            if (( i == selected )); then
+                printf "  ${_C_GREEN}▸${_C_RESET} [${_C_GREEN}%s${_C_RESET}] ${_C_BOLD}%s${_C_RESET}\n" "$mark" "${options[$i]}"
+            else
+                printf "    ${_C_DIM}[%s] %s${_C_RESET}\n" "$mark" "${options[$i]}"
+            fi
+        done
+    }
+
+    echo ""
+    echo "  ${_C_BOLD}选择构建平台${_C_RESET} ${_C_DIM}(↑↓ 移动  Space 切换  Enter 确认  q 取消)${_C_RESET}"
+    echo ""
+
+    printf "\033[?25l"
+    _draw_platform_menu 0
+
+    while true; do
+        read -rsk1 key 2>/dev/null
+        case "$key" in
+            $'\e')
+                read -rsk1 -t 0.1 key 2>/dev/null
+                if [[ "$key" == "[" ]]; then
+                    read -rsk1 -t 0.1 key 2>/dev/null
+                    case "$key" in
+                        A) (( selected > 1 )) && ((selected--)) ;;
+                        B) (( selected < total )) && ((selected++)) ;;
+                    esac
+                else
+                    printf "\033[?25h"
+                    echo ""
+                    echo "  ${_C_YELLOW}已取消${_C_RESET}"
+                    return 1
+                fi
+                ;;
+            " ")
+                # Space 切换选中
+                (( checked[selected] = !checked[selected] ))
+                ;;
+            $'\n'|$'\r')
+                # 检查至少选一项（自定义单独不算，除非有输入）
+                local has_selection=0
+                (( checked[1] )) && has_selection=1
+                (( checked[2] )) && has_selection=1
+                (( checked[3] )) && has_selection=1
+
+                if (( !has_selection )); then
+                    # 提示至少选一项，不退出
+                    printf "\033[1A\033[2K"
+                    printf "  ${_C_RED}至少选择一个平台${_C_RESET}\n"
+                    # 重绘
+                    _draw_platform_menu 0
+                    continue
+                fi
+
+                printf "\033[?25h"
+                echo ""
+
+                # 组装结果
+                local result=""
+                (( checked[1] )) && result="linux/x86_64"
+                (( checked[2] )) && { [[ -n "$result" ]] && result="${result},"; result="${result}linux/arm64/v8"; }
+
+                # 自定义输入
+                if (( checked[3] )); then
+                    printf "  ${_C_BOLD}输入自定义平台${_C_RESET} ${_C_DIM}(例: linux/s390x)${_C_RESET}: "
+                    printf "\033[?25h"
+                    local custom_val
+                    read -r custom_val
+                    if [[ -n "$custom_val" ]]; then
+                        [[ -n "$result" ]] && result="${result},"
+                        result="${result}${custom_val}"
+                    fi
+                fi
+
+                if [[ -z "$result" ]]; then
+                    echo "  ${_C_RED}未选择任何平台${_C_RESET}"
+                    return 1
+                fi
+
+                PLATFORM="$result"
+                return 0
+                ;;
+            q|Q)
+                printf "\033[?25h"
+                echo ""
+                echo "  ${_C_YELLOW}已取消${_C_RESET}"
+                return 1
+                ;;
+            k) (( selected > 1 )) && ((selected--)) ;;
+            j) (( selected < total )) && ((selected++)) ;;
+        esac
+
+        _draw_platform_menu 1
+    done
+}
+
+# ── config 命令 ──────────────────────────────────────
+_aytool_config() {
+    _aytool_load_config || return 1
+
+    # 字段定义: name|display_name|example
+    local -a fields=(
+        "REGISTRY|Registry 地址|例: ccr.ccs.tencentyun.com"
+        "REGISTRY_USER|Registry 用户名|例: your_username"
+        "REGISTRY_PASS|Registry 密码|例: your_password"
+        "NAMESPACE|命名空间|例: my-namespace"
+        "PLATFORM|构建平台|多选"
+        "ENV_FILE|.env 文件路径|例: /home/user/.env"
+    )
+    local total=${#fields[@]}
+
+    while true; do
+        local selected=1
+        local key
+
+        _draw_config_menu() {
+            local redraw=$1
+            if (( redraw )); then
+                printf "\033[${total}A"
+            fi
+
+            local i
+            for (( i=1; i<=total; i++ )); do
+                local entry="${fields[$i]}"
+                local fname="${entry%%|*}"
+                local rest="${entry#*|}"
+                local display="${rest%%|*}"
+
+                # 获取当前值
+                local val="${(P)fname}"
+                # 密码字段脱敏
+                if [[ "$fname" == "REGISTRY_PASS" && -n "$val" && "$val" != "your_password" ]]; then
+                    val="******"
+                fi
+
+                printf "\033[2K"
+                if (( i == selected )); then
+                    printf "  ${_C_GREEN}▸${_C_RESET} ${_C_BOLD}%-16s${_C_RESET} ${_C_CYAN}%s${_C_RESET}\n" "$display" "$val"
+                else
+                    printf "    ${_C_DIM}%-16s %s${_C_RESET}\n" "$display" "$val"
+                fi
+            done
+        }
+
+        echo ""
+        echo "  ${_C_BOLD}配置编辑器${_C_RESET} ${_C_DIM}(↑↓ 选择  Enter 编辑  q 退出)${_C_RESET}"
+        echo ""
+
+        printf "\033[?25l"
+        _draw_config_menu 0
+
+        local done_editing=0
+        while true; do
+            read -rsk1 key 2>/dev/null
+            case "$key" in
+                $'\e')
+                    read -rsk1 -t 0.1 key 2>/dev/null
+                    if [[ "$key" == "[" ]]; then
+                        read -rsk1 -t 0.1 key 2>/dev/null
+                        case "$key" in
+                            A) (( selected > 1 )) && ((selected--)) ;;
+                            B) (( selected < total )) && ((selected++)) ;;
+                        esac
+                    else
+                        printf "\033[?25h"
+                        echo ""
+                        return 0
+                    fi
+                    ;;
+                $'\n'|$'\r')
+                    printf "\033[?25h"
+                    echo ""
+
+                    local entry="${fields[$selected]}"
+                    local fname="${entry%%|*}"
+                    local rest="${entry#*|}"
+                    local display="${rest%%|*}"
+                    local example="${rest#*|}"
+
+                    if [[ "$fname" == "PLATFORM" ]]; then
+                        # 平台多选
+                        if _aytool_multi_select_platform; then
+                            _aytool_save_config
+                            echo "  ${_C_GREEN}已保存${_C_RESET} PLATFORM=${PLATFORM}"
+                        fi
+                    else
+                        # 文本输入
+                        local cur_val="${(P)fname}"
+                        echo "  ${_C_BOLD}${display}${_C_RESET}"
+                        if [[ "$fname" == "REGISTRY_PASS" ]]; then
+                            echo "  ${_C_DIM}当前值: ******${_C_RESET}"
+                        else
+                            echo "  ${_C_DIM}当前值: ${cur_val}${_C_RESET}"
+                        fi
+                        printf "  ${_C_DIM}${example}${_C_RESET}\n"
+                        printf "  ${_C_DIM}(空回车保持不变)${_C_RESET}\n"
+                        printf "  新值: "
+                        local new_val
+                        read -r new_val
+                        if [[ -n "$new_val" ]]; then
+                            eval "${fname}=\"\${new_val}\""
+                            _aytool_save_config
+                            echo "  ${_C_GREEN}已保存${_C_RESET} ${fname}=${new_val}"
+                        else
+                            echo "  ${_C_DIM}未修改${_C_RESET}"
+                        fi
+                    fi
+
+                    # 编辑完一个字段后回到菜单
+                    done_editing=1
+                    break
+                    ;;
+                q|Q)
+                    printf "\033[?25h"
+                    echo ""
+                    return 0
+                    ;;
+                k) (( selected > 1 )) && ((selected--)) ;;
+                j) (( selected < total )) && ((selected++)) ;;
+            esac
+
+            _draw_config_menu 1
+        done
+
+        # 编辑完一个字段后继续显示菜单
+        (( done_editing )) && continue
+    done
+}
+
 # ── 主入口 ───────────────────────────────────────────
 aytool() {
     local subcmd="$1"
@@ -598,6 +869,9 @@ aytool() {
         import)
             _aytool_import "$@"
             ;;
+        config)
+            _aytool_config
+            ;;
         update)
             _aytool_update
             ;;
@@ -611,6 +885,7 @@ aytool() {
             echo "  ${_C_BOLD}用法:${_C_RESET}"
             echo "    aytool init                 生成默认配置文件"
             echo "    aytool import <文件>        从文件导入配置"
+            echo "    aytool config               交互式编辑配置"
             echo "    aytool build                交互选择项目构建"
             echo "    aytool build <别名>         自动版本+1构建"
             echo "    aytool build <别名> <版本>   指定版本构建"
