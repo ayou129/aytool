@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 # aytool - Docker build helper
 
-_AYTOOL_VERSION="3.0.0"
+_AYTOOL_VERSION="3.1.0"
 _AYTOOL_REPO_RAW="https://raw.githubusercontent.com/ayou129/aytool/master"
 _AYTOOL_DIR="${HOME}/.config/aytool"
 _AYTOOL_CONFIG="${_AYTOOL_DIR}/config"
@@ -51,7 +51,9 @@ _aytool_find_project() {
             P_IMAGE="${rest%%|*}"
             rest="${rest#*|}"
             P_BUILD_DIR="${rest%%|*}"
-            P_DOCKERFILE="${rest#*|}"
+            rest="${rest#*|}"
+            P_DOCKERFILE="${rest%%|*}"
+            P_BUILD_CONTEXTS="${rest#*|}"
             # 展开 ~
             P_BUILD_DIR="${P_BUILD_DIR/#\~/$HOME}"
             return 0
@@ -428,6 +430,17 @@ _aytool_build() {
     local cmd="docker buildx build --platform ${PLATFORM} --push -t ${full_image}"
     if [[ -n "$P_DOCKERFILE" ]]; then
         cmd="${cmd} -f ${P_BUILD_DIR}/${P_DOCKERFILE}"
+    fi
+    # 额外构建上下文（逗号分隔，如 shared-core=~/path）
+    if [[ -n "$P_BUILD_CONTEXTS" ]]; then
+        local IFS=','
+        for ctx in ${=P_BUILD_CONTEXTS}; do
+            # 展开值部分的 ~
+            local ctx_name="${ctx%%=*}"
+            local ctx_path="${ctx#*=}"
+            ctx_path="${ctx_path/#\~/$HOME}"
+            cmd="${cmd} --build-context ${ctx_name}=${ctx_path}"
+        done
     fi
     cmd="${cmd} ${P_BUILD_DIR}"
 
