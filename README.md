@@ -26,23 +26,21 @@ PLATFORM=linux/x86_64,linux/arm64/v8
 ENV_FILE=/path/to/your/.env
 
 [projects]
-myapp|MYAPP_VERSION|myapp_image|~/projects/myapp|
-frontend|FRONTEND_VERSION|frontend_image|~/projects|frontend/Dockerfile
+myapp|MYAPP_VERSION|myapp_image|~/projects/myapp||
+frontend|FRONTEND_VERSION|frontend_image|~/projects|frontend/Dockerfile|shared=~/libs
 ```
 
 ```bash
 aytool import ~/path/to/my.conf
 ```
 
-### 方式二：手动编辑
+### 方式二：交互式编辑
 
 ```bash
-aytool init    # 生成默认配置模板
+aytool config               # 编辑全局配置（Registry、平台等）
+aytool project add           # 添加新项目
+aytool project               # 编辑已有项目
 ```
-
-然后编辑：
-- `~/.config/aytool/config` — Registry 凭据、平台、.env 路径
-- `~/.config/aytool/projects.conf` — 项目列表
 
 ### 字段说明
 
@@ -60,7 +58,7 @@ aytool init    # 生成默认配置模板
 **projects.conf** — 每行一个项目，`|` 分隔：
 
 ```
-别名|ENV变量名|镜像名|构建目录|Dockerfile相对路径(可选)
+别名|ENV变量名|镜像名|构建目录|Dockerfile路径(可选)|构建上下文(可选)
 ```
 
 ## 使用
@@ -69,6 +67,10 @@ aytool init    # 生成默认配置模板
 aytool build                # 交互选择项目
 aytool build myapp          # 构建 myapp，版本自动 +1
 aytool build myapp 5        # 构建 myapp，指定版本 5
+aytool project              # 交互式编辑项目配置
+aytool project add          # 添加新项目
+aytool project rm myapp     # 删除项目
+aytool config               # 交互式编辑全局配置
 aytool list                 # 列出所有项目 + 当前版本
 aytool pull myapp           # 输出 docker pull 命令
 aytool import my.conf       # 从文件导入配置
@@ -89,16 +91,18 @@ aytool help                 # 显示帮助
 6. 输出 pull 命令
 ```
 
+## 测试
+
+```bash
+zsh test_aytool.zsh
+```
+
+测试覆盖纯逻辑函数：版本比较、项目解析/序列化、版本读写、项目持久化。
+
 ## 更新
 
 ```bash
 aytool update    # 检查并更新到最新版本
 ```
 
-工具会每天自动检查一次是否有新版本，如果有会在终端提示。
-
-也可以重新执行安装命令更新（不会覆盖已有配置文件）：
-
-```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/ayou129/aytool/master/install.sh)"
-```
+工具会在每次执行命令后异步检查是否有新版本，如果有会在终端提示。
