@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 # aytool - Docker build helper
 
-_AYTOOL_VERSION="4.0.1"
+_AYTOOL_VERSION="4.0.2"
 _AYTOOL_REPO_RAW="https://raw.githubusercontent.com/ayou129/aytool/master"
 _AYTOOL_DIR="${HOME}/.config/aytool"
 _AYTOOL_CONFIG="${_AYTOOL_DIR}/config"
@@ -229,13 +229,20 @@ _aytool_render_edit_fields() {
         local fname="${entry%%|*}"
         local display="${${entry#*|}%%|*}"
         local val="${(P)fname}"
-        [[ -z "$val" ]] && val="${_C_DIM}(空)${_C_RESET}"
 
         printf "\033[2K"
         if (( i == selected )); then
-            printf "  ${_C_GREEN}▸${_C_RESET} ${_C_BOLD}%-12s${_C_RESET} ${_C_CYAN}%s${_C_RESET}\n" "$display" "$val"
+            if [[ -z "$val" ]]; then
+                printf "  ${_C_GREEN}▸${_C_RESET} ${_C_BOLD}%-12s${_C_RESET} ${_C_DIM}(空)${_C_RESET}\n" "$display"
+            else
+                printf "  ${_C_GREEN}▸${_C_RESET} ${_C_BOLD}%-12s${_C_RESET} ${_C_CYAN}%s${_C_RESET}\n" "$display" "$val"
+            fi
         else
-            printf "    ${_C_DIM}%-12s %s${_C_RESET}\n" "$display" "$val"
+            if [[ -z "$val" ]]; then
+                printf "    ${_C_DIM}%-12s (空)${_C_RESET}\n" "$display"
+            else
+                printf "    ${_C_DIM}%-12s %s${_C_RESET}\n" "$display" "$val"
+            fi
         fi
     done
 }
