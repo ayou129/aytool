@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 # aytool - Docker build helper
 
-_AYTOOL_VERSION="4.0.0"
+_AYTOOL_VERSION="4.0.1"
 _AYTOOL_REPO_RAW="https://raw.githubusercontent.com/ayou129/aytool/master"
 _AYTOOL_DIR="${HOME}/.config/aytool"
 _AYTOOL_CONFIG="${_AYTOOL_DIR}/config"
@@ -373,13 +373,21 @@ _aytool_edit_fields() {
         if [[ "$fname" == "REGISTRY_PASS" ]]; then
             echo "  ${_C_DIM}当前值: ******${_C_RESET}"
         else
-            echo "  ${_C_DIM}当前值: ${cur_val}${_C_RESET}"
+            echo "  ${_C_DIM}当前值: ${cur_val:-(空)}${_C_RESET}"
         fi
         [[ -n "$hint" ]] && printf "  ${_C_DIM}${hint}${_C_RESET}\n"
-        printf "  ${_C_DIM}(空回车保持不变)${_C_RESET}\n"
+        if [[ -n "$cur_val" ]]; then
+            printf "  ${_C_DIM}(空回车保持不变，输入 - 清空)${_C_RESET}\n"
+        else
+            printf "  ${_C_DIM}(空回车保持不变)${_C_RESET}\n"
+        fi
         printf "  新值: "
         local new_val; read -r new_val
-        if [[ -n "$new_val" ]]; then
+        if [[ "$new_val" == "-" ]]; then
+            eval "${fname}=''"
+            $save_fn
+            echo "  ${_C_GREEN}已清空${_C_RESET}"
+        elif [[ -n "$new_val" ]]; then
             eval "${fname}=\"\${new_val}\""
             $save_fn
             echo "  ${_C_GREEN}已保存${_C_RESET}"
