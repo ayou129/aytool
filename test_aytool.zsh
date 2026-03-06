@@ -64,30 +64,52 @@ assert_eq "myimage" "$_P_IMAGE" "image parsed"
 assert_eq "${HOME}/projects/go" "$_P_BUILD_DIR" "build_dir ~ expanded"
 assert_eq "" "$_P_DOCKERFILE" "dockerfile empty"
 assert_eq "" "$_P_BUILD_CONTEXTS" "contexts empty"
+assert_eq "" "$_P_PRE_BUILD" "pre_build empty (6-field compat)"
 
 _aytool_parse_project "tc_sys|SYS_VER|sysimg|~/app|custom/Dockerfile|shared=~/libs"
 assert_eq "tc_sys" "$_P_ALIAS" "alias with all fields"
 assert_eq "custom/Dockerfile" "$_P_DOCKERFILE" "dockerfile path"
 assert_eq "shared=~/libs" "$_P_BUILD_CONTEXTS" "build contexts"
+assert_eq "" "$_P_PRE_BUILD" "pre_build empty (6-field)"
+
+_aytool_parse_project "fe|FE_VER|feimg|~/app|||pnpm run build"
+assert_eq "fe" "$_P_ALIAS" "7-field alias"
+assert_eq "" "$_P_DOCKERFILE" "7-field dockerfile empty"
+assert_eq "" "$_P_BUILD_CONTEXTS" "7-field contexts empty"
+assert_eq "pnpm run build" "$_P_PRE_BUILD" "7-field pre_build"
+
+_aytool_parse_project "full|F_VER|img|~/x|sub/Dockerfile|ctx=~/lib|make build"
+assert_eq "ctx=~/lib" "$_P_BUILD_CONTEXTS" "7-field full contexts"
+assert_eq "make build" "$_P_PRE_BUILD" "7-field full pre_build"
 
 # ── serialize_project ───────────────────
 echo ""
 echo "  ${_C_BOLD}serialize_project${_C_RESET}"
 
 _P_ALIAS="test"; _P_ENV_VAR="TEST_VER"; _P_IMAGE="img"
-_P_BUILD_DIR="${HOME}/mydir"; _P_DOCKERFILE=""; _P_BUILD_CONTEXTS=""
+_P_BUILD_DIR="${HOME}/mydir"; _P_DOCKERFILE=""; _P_BUILD_CONTEXTS=""; _P_PRE_BUILD=""
 local result=$(_aytool_serialize_project)
-assert_eq "test|TEST_VER|img|~/mydir||" "$result" "serialize basic"
+assert_eq "test|TEST_VER|img|~/mydir||" "$result" "serialize basic (no pre_build)"
 
-_P_BUILD_DIR="${HOME}/app"; _P_DOCKERFILE="sub/Dockerfile"; _P_BUILD_CONTEXTS="ctx=~/lib"
+_P_BUILD_DIR="${HOME}/app"; _P_DOCKERFILE="sub/Dockerfile"; _P_BUILD_CONTEXTS="ctx=~/lib"; _P_PRE_BUILD=""
 result=$(_aytool_serialize_project)
-assert_eq "test|TEST_VER|img|~/app|sub/Dockerfile|ctx=~/lib" "$result" "serialize full"
+assert_eq "test|TEST_VER|img|~/app|sub/Dockerfile|ctx=~/lib" "$result" "serialize 6-field"
 
-# roundtrip: parse → serialize → parse
+_P_PRE_BUILD="pnpm run build"
+result=$(_aytool_serialize_project)
+assert_eq "test|TEST_VER|img|~/app|sub/Dockerfile|ctx=~/lib|pnpm run build" "$result" "serialize 7-field"
+
+# roundtrip: 6-field
 local original="myapp|APP_VER|myimg|~/code|special/Dockerfile|lib=~/shared"
 _aytool_parse_project "$original"
 local serialized=$(_aytool_serialize_project)
-assert_eq "$original" "$serialized" "parse → serialize roundtrip"
+assert_eq "$original" "$serialized" "roundtrip 6-field"
+
+# roundtrip: 7-field
+original="fe|FE_VER|feimg|~/app|||pnpm run build"
+_aytool_parse_project "$original"
+serialized=$(_aytool_serialize_project)
+assert_eq "$original" "$serialized" "roundtrip 7-field"
 
 # ── read_version / update_version ──────
 echo ""
