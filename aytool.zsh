@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 # aytool - Docker build helper
 
-_AYTOOL_VERSION="4.1.0"
+_AYTOOL_VERSION="4.2.0"
 _AYTOOL_REPO_RAW="https://raw.githubusercontent.com/ayou129/aytool/master"
 _AYTOOL_DIR="${HOME}/.config/aytool"
 _AYTOOL_CONFIG="${_AYTOOL_DIR}/config"
@@ -22,33 +22,35 @@ _C_MAGENTA="\033[35m"
 # ══════════════════════════════════════════════════════
 
 # 解析一行项目配置 → 全局变量 _P_*
-# 格式: 别名|ENV变量名|镜像名|构建目录|Dockerfile路径|构建上下文|构建前命令
+# 格式: 别名|ENV变量名|镜像名|构建目录|Dockerfile路径|构建上下文|构建前命令(可选)|ENV_FILE(可选)
 _aytool_parse_project() {
     local line="$1"
-    _P_ALIAS="${line%%|*}"
-    local rest="${line#*|}"
-    _P_ENV_VAR="${rest%%|*}"
-    rest="${rest#*|}"
-    _P_IMAGE="${rest%%|*}"
-    rest="${rest#*|}"
-    _P_BUILD_DIR="${rest%%|*}"
-    rest="${rest#*|}"
-    _P_DOCKERFILE="${rest%%|*}"
-    rest="${rest#*|}"
-    _P_BUILD_CONTEXTS="${rest%%|*}"
-    if [[ "$rest" == *"|"* ]]; then
-        _P_PRE_BUILD="${rest#*|}"
-    else
-        _P_PRE_BUILD=""
-    fi
+    local -a segs
+    # zsh 数组 split: 用 (s:|:) 分隔符; 保留空段
+    segs=("${(@s:|:)line}")
+    _P_ALIAS="${segs[1]:-}"
+    _P_ENV_VAR="${segs[2]:-}"
+    _P_IMAGE="${segs[3]:-}"
+    _P_BUILD_DIR="${segs[4]:-}"
+    _P_DOCKERFILE="${segs[5]:-}"
+    _P_BUILD_CONTEXTS="${segs[6]:-}"
+    _P_PRE_BUILD="${segs[7]:-}"
+    _P_ENV_FILE="${segs[8]:-}"
     _P_BUILD_DIR="${_P_BUILD_DIR/#\~/$HOME}"
+    _P_ENV_FILE="${_P_ENV_FILE/#\~/$HOME}"
 }
 
 # 序列化 _P_* → 管道分隔行
+# 规则: 末尾空段省略,避免产生 "...|" 脏尾; 但若 _P_ENV_FILE 非空而 _P_PRE_BUILD 空,需保留空占位段
 _aytool_serialize_project() {
     local dir="${_P_BUILD_DIR/#$HOME/~}"
+    local envf="${_P_ENV_FILE/#$HOME/~}"
     local base="${_P_ALIAS}|${_P_ENV_VAR}|${_P_IMAGE}|${dir}|${_P_DOCKERFILE}|${_P_BUILD_CONTEXTS}"
-    [[ -n "$_P_PRE_BUILD" ]] && base="${base}|${_P_PRE_BUILD}"
+    if [[ -n "$envf" ]]; then
+        base="${base}|${_P_PRE_BUILD}|${envf}"
+    elif [[ -n "$_P_PRE_BUILD" ]]; then
+        base="${base}|${_P_PRE_BUILD}"
+    fi
     echo "$base"
 }
 
@@ -100,17 +102,19 @@ _aytool_find_project() {
 
 _aytool_read_version() {
     local var_name="$1"
+    local env_file="${_P_ENV_FILE:-$ENV_FILE}"
     local val
-    val=$(grep "^${var_name}=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '\r')
+    val=$(grep "^${var_name}=" "$env_file" 2>/dev/null | head -1 | cut -d= -f2 | tr -d '\r')
     echo "${val:-0}"
 }
 
 _aytool_update_version() {
     local var_name="$1" new_ver="$2"
-    if grep -q "^${var_name}=" "$ENV_FILE" 2>/dev/null; then
-        sed -i '' "s/^${var_name}=.*/${var_name}=${new_ver}/" "$ENV_FILE"
+    local env_file="${_P_ENV_FILE:-$ENV_FILE}"
+    if grep -q "^${var_name}=" "$env_file" 2>/dev/null; then
+        sed -i '' "s/^${var_name}=.*/${var_name}=${new_ver}/" "$env_file"
     else
-        echo "${var_name}=${new_ver}" >> "$ENV_FILE"
+        echo "${var_name}=${new_ver}" >> "$env_file"
     fi
 }
 
@@ -462,6 +466,7 @@ _aytool_save_current_project() {
     _P_DOCKERFILE="$_PE_DOCKERFILE"
     _P_BUILD_CONTEXTS="$_PE_BUILD_CONTEXTS"
     _P_PRE_BUILD="$_PE_PRE_BUILD"
+    _P_ENV_FILE="${_PE_ENV_FILE/#\~/$HOME}"
     _PROJECTS[$_EDIT_PROJECT_IDX]=$(_aytool_serialize_project)
     _aytool_save_projects
 }
@@ -491,6 +496,7 @@ _aytool_project_edit() {
     _PE_DOCKERFILE="$_P_DOCKERFILE"
     _PE_BUILD_CONTEXTS="$_P_BUILD_CONTEXTS"
     _PE_PRE_BUILD="$_P_PRE_BUILD"
+    _PE_ENV_FILE="${_P_ENV_FILE/#$HOME/~}"
 
     _EDIT_FIELDS=(
         "_PE_ALIAS|别名|项目简称，用于 aytool build <别名>"
@@ -500,6 +506,7 @@ _aytool_project_edit() {
         "_PE_DOCKERFILE|Dockerfile|相对路径，空=默认 Dockerfile"
         "_PE_BUILD_CONTEXTS|构建上下文|逗号分隔，如 name=path，空=无"
         "_PE_PRE_BUILD|构建前命令|docker build 前执行，如 pnpm run build"
+        "_PE_ENV_FILE|ENV_FILE|项目独立的 .env 路径(留空用全局)"
     )
 
     _aytool_edit_fields _EDIT_FIELDS _aytool_render_edit_fields _aytool_save_current_project "编辑项目: ${_PE_ALIAS}"
@@ -510,7 +517,7 @@ _aytool_project_add() {
     echo "  ${_C_BOLD}添加新项目${_C_RESET}"
     echo ""
 
-    local alias env_var image build_dir dockerfile contexts pre_build
+    local alias env_var image build_dir dockerfile contexts pre_build env_file
 
     printf "  ${_C_BOLD}别名${_C_RESET} ${_C_DIM}(项目简称，如 myapp)${_C_RESET}: "; read -r alias
     [[ -z "$alias" ]] && { echo "  ${_C_RED}别名不能为空${_C_RESET}"; return 1; }
@@ -532,9 +539,14 @@ _aytool_project_add() {
     printf "  ${_C_BOLD}Dockerfile${_C_RESET} ${_C_DIM}(相对路径，空=默认)${_C_RESET}: "; read -r dockerfile
     printf "  ${_C_BOLD}构建上下文${_C_RESET} ${_C_DIM}(逗号分隔 name=path，空=无)${_C_RESET}: "; read -r contexts
     printf "  ${_C_BOLD}构建前命令${_C_RESET} ${_C_DIM}(docker build 前执行，如 pnpm run build，空=无)${_C_RESET}: "; read -r pre_build
+    printf "  ${_C_BOLD}ENV_FILE${_C_RESET} ${_C_DIM}(项目独立的 .env 路径,留空用全局)${_C_RESET}: "; read -r env_file
 
     local line="${alias}|${env_var}|${image}|${build_dir}|${dockerfile}|${contexts}"
-    [[ -n "$pre_build" ]] && line="${line}|${pre_build}"
+    if [[ -n "$env_file" ]]; then
+        line="${line}|${pre_build}|${env_file}"
+    elif [[ -n "$pre_build" ]]; then
+        line="${line}|${pre_build}"
+    fi
     _PROJECTS+=("$line")
     _aytool_save_projects
 
@@ -812,10 +824,11 @@ CONF
 
     if [[ ! -f "$_AYTOOL_PROJECTS" ]]; then
         cat > "$_AYTOOL_PROJECTS" <<'CONF'
-# 别名|ENV变量名|镜像名|构建目录|Dockerfile(可选)|构建上下文(可选)|构建前命令(可选)
+# 别名|ENV变量名|镜像名|构建目录|Dockerfile(可选)|构建上下文(可选)|构建前命令(可选)|ENV_FILE(可选,留空用全局)
 # 示例:
 # myapp|MYAPP_VERSION|myapp_image|~/projects/myapp||
 # frontend|FRONTEND_VERSION|frontend_image|~/projects|frontend/Dockerfile|shared=~/libs|pnpm run build
+# custom|CUSTOM_VERSION|custom_image|~/projects/custom||||/custom/path/.env
 CONF
         echo "${_C_GREEN}已创建项目配置:${_C_RESET} $_AYTOOL_PROJECTS"
     else
